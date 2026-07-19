@@ -7,6 +7,9 @@ pub async fn dispatch(
     uri: Uri,
 ) -> Response {
     let path = uri.path().trim_start_matches('/').to_string();
+    if method == Method::OPTIONS && path.split('/').next() == Some(crate::bvwebgpu::BVW_PLATFORM) {
+        return bvpk_preflight();
+    }
     let local = dispatch_local(&state, &path, &method, &headers).await;
 
     if local.status() == StatusCode::NOT_FOUND {
@@ -29,6 +32,12 @@ pub async fn dispatch(
         if segs.len() == 3 && segs[0] == "lods-unity" && segs[1] == "manifests" {
             return iss_fallback(&state, &path, &method, &headers, local).await;
         }
+        if let Some(target) = bvpk_target(&path) {
+            let wait = uri
+                .query()
+                .is_some_and(|q| q.split('&').any(|kv| kv == "wait=1"));
+            return bvpk_fallback(&state, &path, &target, wait, &method, &headers, local).await;
+        }
         if let Some((bare, platform)) = flat_target(&path) {
             return flat_fallback(&state, &path, &bare, &platform, &method, &headers, local).await;
         }
@@ -43,6 +52,10 @@ pub(super) async fn dispatch_local(
     headers: &HeaderMap,
 ) -> Response {
     let segments: Vec<&str> = path.split('/').collect();
+
+    if segments.first() == Some(&crate::bvwebgpu::BVW_PLATFORM) {
+        return bvpk_serve_local(state, path, method, headers).await;
+    }
 
     if segments.first() == Some(&"manifest") && segments.len() == 2 {
         let name = segments[1];
