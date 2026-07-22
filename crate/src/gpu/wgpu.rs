@@ -82,6 +82,7 @@ fn init() -> Result<Gpu, String> {
     let info = adapter.get_info();
     let (device, queue) = block_on_now(adapter.request_device(&::wgpu::DeviceDescriptor {
         label: Some("abgen-gpu-wgpu"),
+        required_features: adapter.features() & ::wgpu::Features::TIMESTAMP_QUERY,
         required_limits: adapter.limits(),
         ..Default::default()
     }))

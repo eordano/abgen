@@ -7,6 +7,8 @@ pub(crate) mod cuda;
 mod qualify;
 pub(crate) mod wgpu;
 pub(crate) mod wgpu_bc7;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) mod wgpu_mesh;
 
 #[cfg(not(target_arch = "wasm32"))]
 use anyhow::{anyhow, Result};
@@ -265,6 +267,14 @@ pub fn gpu_ready() -> Result<(), String> {
 #[cfg(not(target_arch = "wasm32"))]
 pub fn backend_is_off() -> bool {
     matches!(parse_backend_sel(), Ok(BackendSel::Off))
+}
+
+/// True only for an explicit ABGEN_GPU_BACKEND=wgpu selection. The mesh
+/// lane keeps its CUDA-or-nothing default under auto; wgpu mesh kernels
+/// are opt-in until qualified on real GPUs.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn wgpu_backend_selected() -> bool {
+    matches!(parse_backend_sel(), Ok(BackendSel::Wgpu))
 }
 
 #[cfg(not(target_arch = "wasm32"))]

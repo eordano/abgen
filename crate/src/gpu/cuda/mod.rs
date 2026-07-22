@@ -100,8 +100,10 @@ type FnModuleLoadDataEx = unsafe extern "C" fn(
 type FnModuleGetFunction =
     unsafe extern "C" fn(*mut *mut c_void, *mut c_void, *const c_char) -> CuResult;
 type FnMemAlloc = unsafe extern "C" fn(*mut DevPtr, usize) -> CuResult;
+type FnMemGetInfo = unsafe extern "C" fn(*mut usize, *mut usize) -> CuResult;
 type FnMemcpyHtoD = unsafe extern "C" fn(DevPtr, *const c_void, usize) -> CuResult;
 type FnMemcpyDtoH = unsafe extern "C" fn(*mut c_void, DevPtr, usize) -> CuResult;
+type FnMemsetD8 = unsafe extern "C" fn(DevPtr, u8, usize) -> CuResult;
 type FnLaunchKernel = unsafe extern "C" fn(
     *mut c_void,
     u32,
@@ -135,8 +137,10 @@ struct Gpu {
     ctx: *mut c_void,
     ctx_set_current: FnCtxSetCurrent,
     mem_alloc: FnMemAlloc,
+    mem_get_info: FnMemGetInfo,
     memcpy_htod: FnMemcpyHtoD,
     memcpy_dtoh: FnMemcpyDtoH,
+    memset_d8: FnMemsetD8,
     launch_kernel: FnLaunchKernel,
     ctx_synchronize: FnCtxSynchronize,
     mem_free: FnMemFree,
@@ -161,6 +165,12 @@ struct Gpu {
     func_quantize_pack: *mut c_void,
     func_halve: *mut c_void,
     has_blockify: bool,
+    func_mesh_survey: *mut c_void,
+    func_mesh_accum: *mut c_void,
+    func_mesh_accum_edges: *mut c_void,
+    func_mesh_pick: *mut c_void,
+    func_mesh_remap: *mut c_void,
+    has_mesh: bool,
 }
 
 unsafe impl Send for Gpu {}
@@ -253,8 +263,10 @@ impl Gpu {
             ctx: std::ptr::null_mut(),
             ctx_set_current: sym(lib, c"cuCtxSetCurrent")?,
             mem_alloc: sym(lib, c"cuMemAlloc_v2")?,
+            mem_get_info: sym(lib, c"cuMemGetInfo_v2")?,
             memcpy_htod: sym(lib, c"cuMemcpyHtoD_v2")?,
             memcpy_dtoh: sym(lib, c"cuMemcpyDtoH_v2")?,
+            memset_d8: sym(lib, c"cuMemsetD8_v2")?,
             launch_kernel: sym(lib, c"cuLaunchKernel")?,
             ctx_synchronize: sym(lib, c"cuCtxSynchronize")?,
             mem_free: sym(lib, c"cuMemFree_v2")?,
@@ -279,6 +291,12 @@ impl Gpu {
             func_quantize_pack: std::ptr::null_mut(),
             func_halve: std::ptr::null_mut(),
             has_blockify: false,
+            func_mesh_survey: std::ptr::null_mut(),
+            func_mesh_accum: std::ptr::null_mut(),
+            func_mesh_accum_edges: std::ptr::null_mut(),
+            func_mesh_pick: std::ptr::null_mut(),
+            func_mesh_remap: std::ptr::null_mut(),
+            has_mesh: false,
         };
         g.check(init(0))?;
         let mut dev: i32 = 0;
@@ -345,12 +363,51 @@ impl Gpu {
         g.func_linearize = f_lin;
         g.func_quantize_pack = f_pack;
         g.func_halve = f_halve;
+        let mut f_msurvey: *mut c_void = std::ptr::null_mut();
+        let mut f_maccum: *mut c_void = std::ptr::null_mut();
+        let mut f_medges: *mut c_void = std::ptr::null_mut();
+        let mut f_mpick: *mut c_void = std::ptr::null_mut();
+        let mut f_mremap: *mut c_void = std::ptr::null_mut();
+        g.has_mesh = module_get_function(&mut f_msurvey, module, c"mesh_survey".as_ptr()) == 0
+            && module_get_function(&mut f_maccum, module, c"mesh_accum".as_ptr()) == 0
+            && module_get_function(&mut f_medges, module, c"mesh_accum_edges".as_ptr()) == 0
+            && module_get_function(&mut f_mpick, module, c"mesh_pick".as_ptr()) == 0
+            && module_get_function(&mut f_mremap, module, c"mesh_remap".as_ptr()) == 0;
+        g.func_mesh_survey = f_msurvey;
+        g.func_mesh_accum = f_maccum;
+        g.func_mesh_accum_edges = f_medges;
+        g.func_mesh_pick = f_mpick;
+        g.func_mesh_remap = f_mremap;
         Ok(g)
     }
 
-    unsafe fn alloc_upload(&self, bytes: &[u8]) -> Result<DevPtr> {
+    unsafe fn vram_info(&self) -> Result<(usize, usize)> {
+        let mut free = 0usize;
+        let mut total = 0usize;
+        self.check((self.mem_get_info)(&mut free, &mut total))?;
+        Ok((free, total))
+    }
+
+    /// Every device allocation goes through here. Hard budget: a single
+    /// allocation never exceeds half of the currently free VRAM — abgen
+    /// shares its GPUs with production workloads, and an over-budget request
+    /// must fail (falling back to the CPU lane) rather than starve them.
+    unsafe fn alloc_dev(&self, bytes: usize, tag: &str) -> Result<DevPtr> {
+        let (free, _total) = self.vram_info()?;
+        let budget = free / 2;
+        if bytes > budget {
+            bail!(
+                "dev alloc {tag}: {bytes} bytes exceeds the 50%-of-free-VRAM budget ({budget} of {free} free)"
+            );
+        }
         let mut d: DevPtr = 0;
-        self.check((self.mem_alloc)(&mut d, bytes.len().max(1)))?;
+        self.check((self.mem_alloc)(&mut d, bytes.max(1)))
+            .map_err(|e| anyhow!("dev alloc {tag} ({bytes} bytes): {e}"))?;
+        Ok(d)
+    }
+
+    unsafe fn alloc_upload(&self, bytes: &[u8]) -> Result<DevPtr> {
+        let d = self.alloc_dev(bytes.len(), "upload")?;
         self.check((self.memcpy_htod)(d, bytes.as_ptr().cast(), bytes.len()))?;
         Ok(d)
     }
@@ -410,8 +467,7 @@ impl Gpu {
         let d_params = self.alloc_upload(params_bytes)?;
         let d_tables = self.alloc_upload(tables_bytes)?;
         let out_len = num_blocks * 16;
-        let mut d_out: DevPtr = 0;
-        self.check((self.mem_alloc)(&mut d_out, out_len))?;
+        let d_out = self.alloc_dev(out_len, "encode-out")?;
 
         let num_groups = num_blocks.div_ceil(GROUP_WIDTH) as u32;
         let block_dim: u32 = encode_bdim();
@@ -474,25 +530,45 @@ pub fn cmd_probe() {
         }
     };
     unsafe {
-        for gb in [24.0f64, 20.0, 18.0, 16.0, 14.0, 12.0, 10.0, 8.0] {
-            let bytes = (gb * 1e9) as usize;
-            let mut p: DevPtr = 0;
-            let code = (g.mem_alloc)(&mut p, bytes);
-            if code == 0 {
-                println!("probe: {gb} GB single alloc OK");
-                let _ = (g.mem_free)(p);
-            } else {
-                println!("probe: {gb} GB single alloc FAILED (code {code})");
+        // Free-VRAM-relative, never absolute: abgen shares GPUs with
+        // production workloads, so the probe exercises the same
+        // 50%-of-free budget every real allocation obeys.
+        let (free, total) = match g.vram_info() {
+            Ok(x) => x,
+            Err(e) => {
+                println!("probe: cuMemGetInfo failed: {e:#}");
+                return;
+            }
+        };
+        println!(
+            "probe: VRAM free {:.1} GB / total {:.1} GB — allocations budgeted at 50% of free",
+            free as f64 / 1e9,
+            total as f64 / 1e9
+        );
+        for pct in [50u32, 25, 10] {
+            let bytes = free / 100 * pct as usize;
+            match g.alloc_dev(bytes, "probe") {
+                Ok(p) => {
+                    println!("probe: {pct}% of free ({:.1} GB) alloc OK", bytes as f64 / 1e9);
+                    let _ = (g.mem_free)(p);
+                }
+                Err(e) => {
+                    println!(
+                        "probe: {pct}% of free ({:.1} GB) alloc FAILED: {e:#}",
+                        bytes as f64 / 1e9
+                    );
+                }
             }
         }
         let mut hp: *mut c_void = std::ptr::null_mut();
-        let hcode = (g.mem_host_alloc)(&mut hp, 3_000_000_000, 0);
-        println!("probe: 3 GB pinned host alloc -> code {hcode}");
-        let mut p: DevPtr = 0;
-        let code = (g.mem_alloc)(&mut p, 20_400_000_000);
-        println!("probe: 20.4 GB dev alloc after pinned -> code {code}");
-        if code == 0 {
-            let _ = (g.mem_free)(p);
+        let hcode = (g.mem_host_alloc)(&mut hp, 1_000_000_000, 0);
+        println!("probe: 1 GB pinned host alloc -> code {hcode}");
+        match g.alloc_dev(free / 4, "probe-after-pinned") {
+            Ok(p) => {
+                println!("probe: 25% of free dev alloc after pinned OK");
+                let _ = (g.mem_free)(p);
+            }
+            Err(e) => println!("probe: dev alloc after pinned FAILED: {e:#}"),
         }
         if hcode == 0 {
             let _ = (g.mem_free_host)(hp);
@@ -548,7 +624,19 @@ impl DevArena {
                 self.ptr = 0;
                 self.cap = 0;
             }
-            let want = (bytes + bytes / 16).max(1);
+            // 1/16 headroom is a nicety; the 50%-of-free budget is not. Drop
+            // the headroom first if it would bust the budget, then fail.
+            let (free, _) = g.vram_info()?;
+            let budget = free / 2;
+            let want = if (bytes + bytes / 16).max(1) <= budget {
+                (bytes + bytes / 16).max(1)
+            } else if bytes <= budget {
+                bytes
+            } else {
+                bail!(
+                    "dev alloc {tag}: {bytes} bytes exceeds the 50%-of-free-VRAM budget ({budget} of {free} free)"
+                );
+            };
             let mut p: DevPtr = 0;
             let mut code = 0;
             for attempt in 0..8 {
@@ -706,6 +794,7 @@ pub struct SlabEngine {
 }
 
 mod chain;
+pub mod mesh;
 mod slab;
 
 pub use chain::tex_geometry;

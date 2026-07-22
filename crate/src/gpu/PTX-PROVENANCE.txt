@@ -1,11 +1,14 @@
 kernel.ptx provenance:
-sha256 d193845ed6a81005847735339305e14ebe4e223b35e6b1535ce0ababab93802f
-built 2026-07-10 from kernel-ptx/ (crate abgen-gpu-kernel-ptx, module abgen_gpu_core;
-renamed from the retired abgpugen name - internal mangled symbols only, the eight
-unmangled .visible .entry kernels are unchanged)
+sha256 048ea4c3fc656779db4d3bc868af64bec37f0e42bdbdb4697b0ee6904a7d4e98
+built 2026-07-21 from kernel-ptx/ (crate abgen-gpu-kernel-ptx, module abgen_gpu_core;
+adds the five mesh_* decimation kernels - mesh_survey, mesh_accum, mesh_accum_edges,
+mesh_pick, mesh_remap - alongside the eight texture entries, which are source-unchanged;
+first PTX in this tree using atomics: atom.global.add.u64/u32 + atom.global.min.u64)
 refresh: cd crates/abgen/kernel-ptx && nix develop path:. --command cargo build --release && cp target/nvptx64-nvidia-cuda/release/abgen_gpu_kernel_ptx.ptx ../src/gpu/kernel.ptx
 runtime override: ABGEN_GPU_PTX=<path>
-verification 2026-07-10 (abgen-verify gpu diff --gpu): byte-identical vs oracle at 512/seed3,
-8192/seed1, 16384/seed42, 32768/seed7 (all configs incl. mip chains, exit 0),
-matching the 2026-07-07 fold precedent that a names-only regen passes the full
-gate. Do not regenerate without re-running abgen-verify gpu diff --gpu at these combos.
+prior verification 2026-07-10 (sha256 d193845ed6a81005847735339305e14ebe4e223b35e6b1535ce0ababab93802f,
+abgen-verify gpu diff --gpu): byte-identical vs oracle at 512/seed3, 8192/seed1,
+16384/seed42, 32768/seed7 (all configs incl. mip chains, exit 0).
+2026-07-21 regen is NOT yet GPU-verified (built on a GPU-less box): before serving with
+ABGEN_GPU=1, re-run abgen-verify gpu diff --gpu at those combos (texture byte-identity)
+plus abgen-verify gpu mesh --gpu (mesh quality/budget lanes) on a real GPU.

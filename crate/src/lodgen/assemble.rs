@@ -522,6 +522,7 @@ mod tests {
                 })
                 .collect(),
             metadata: serde_json::json!({}),
+            timestamp: None,
         }
     }
 

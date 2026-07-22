@@ -46,6 +46,10 @@ fn simplify_prim(
     if prim.indices.len() <= target_indices {
         return Ok((prim.clone(), false));
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(out) = crate::gpu_mesh_dispatch::direct_decimate(prim, target_tris) {
+        return Ok(out);
+    }
     let bytes = meshopt::typed_to_bytes(&prim.positions);
     let adapter = meshopt::VertexDataAdapter::new(bytes, 12, 0)
         .map_err(|e| anyhow!("meshopt vertex adapter: {e}"))?;
@@ -110,6 +114,10 @@ pub fn simplify_model(
     enforce_cap: bool,
 ) -> Result<(LodModel, SimplifyReport)> {
     let tris_before = model.total_tris();
+    #[cfg(not(target_arch = "wasm32"))]
+    let coarsened = crate::gpu_mesh_dispatch::coarsen_for_finish(model, target_tris);
+    #[cfg(not(target_arch = "wasm32"))]
+    let model = coarsened.as_ref().unwrap_or(model);
     let mut ratios_run: Vec<f64> = Vec::new();
     ratios_run.push(if tris_before == 0 {
         1.0

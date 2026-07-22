@@ -1,6 +1,7 @@
 pub mod bc5;
 pub mod bc7;
 pub mod dxt1;
+pub mod mesh_coarsen;
 pub mod mips;
 pub mod mode_tree;
 

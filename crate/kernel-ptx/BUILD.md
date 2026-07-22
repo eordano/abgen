@@ -77,6 +77,26 @@ Kernel entry points (`src/lib.rs`, stable extern names the host resolves via
 `bc7_group_sigs`, `bc7_group_sigs_desc`, `blockify_linearize`, `blockify_halve`,
 `blockify_quantize_pack`. One thread per 4-block GROUP (lane coupling in `compress_group`).
 
+Mesh decimation entry points (resolved optionally, `has_mesh` gate like `has_blockify`):
+`mesh_survey`, `mesh_accum`, `mesh_accum_edges`, `mesh_pick`, `mesh_remap`. These implement
+the LOD1 QEM-cell coarsen pass (`core/mesh_coarsen.rs`, host driver `src/gpu/cuda/mesh.rs`,
+dispatch `src/gpu_mesh_dispatch.rs`). Contract differences from the texture kernels, stated
+deliberately:
+- The correctness bar is QUALITY (tri budget hit, bounded geometric error, valid streams,
+  per-backend run-to-run determinism), NOT byte-identity vs a CPU oracle - mesh decimation
+  is a different algorithm than the meshopt path it accelerates. Cross-backend (GPU vs the
+  CPU reference in gpu_mesh_dispatch) equality is expected but not guaranteed at the bit
+  level (f32 FMA contraction can perturb quadric costs near argmin ties).
+- These kernels DO use atomics (the only ones here that may): i64/u32 `fetch_add` and u64
+  `fetch_min`, all Relaxed. Determinism still holds run-to-run because all accumulation is
+  fixed-point integer (associative + commutative) and the argmin operand packs
+  (cost << 32 | vertex_id), so ties resolve to the lowest vertex id regardless of thread
+  order. Keep it that way: never accumulate floats atomically here.
+- The shared `core/mesh_coarsen.rs` itself stays atomics-free and no_std like the rest of
+  `core/`; the atomics live only in the `src/lib.rs` entry points.
+- Verification harness: `abgen-verify gpu mesh [--gpu]` (CPU A/B lanes always run;
+  `--gpu` adds the CUDA lanes when a driver + these kernels are present).
+
 Host dispatch: `src/gpu/cuda.rs` (dlopen libcuda FFI) and `src/gpu/wgpu*.rs` (WGSL lane), behind
 feature `gpu`; harness `abgen-verify gpu <diff|bench|corpus>`. Per-device self-qualification
 gates every backend (`ABGEN_GPU_BACKEND`, `ABGEN_GPU_QUALIFY`); GPU output byte-identical to the

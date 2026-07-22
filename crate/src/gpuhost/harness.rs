@@ -5,7 +5,7 @@ use crate::gpuhost::oracle;
 use anyhow::{anyhow, bail, Result};
 use std::fmt::Write as _;
 
-const USAGE: &str = "usage: abgen-verify gpu <command> [flags]\n  diff   [--blocks N] [--seed S] [--scalar-oracle] [--gpu]   (defaults: N=8192 S=1)\n  bench  [--blocks N] [--seed S] [--gpu]                     (defaults: N=65536 S=1)\n  corpus --entities <file> [--limit N] [--slab-gb G] [--jobs J] [--cpu] [--store <dir>]\n         (defaults: G=20.0 J=available-parallelism store=./contents)";
+const USAGE: &str = "usage: abgen-verify gpu <command> [flags]\n  diff   [--blocks N] [--seed S] [--scalar-oracle] [--gpu]   (defaults: N=8192 S=1)\n  bench  [--blocks N] [--seed S] [--gpu]                     (defaults: N=65536 S=1)\n  mesh   [--quads N] [--cap C] [--k K] [--samples S] [--gpu] [--repeats R] (defaults: N=575 C=32000 K=4 S=4096 R=1)\n  corpus --entities <file> [--limit N] [--slab-gb G] [--jobs J] [--cpu] [--store <dir>]\n         (defaults: G=20.0 J=available-parallelism store=./contents)";
 
 pub fn run(args: &[String]) -> Result<i32> {
     let cmd = args.first().ok_or_else(|| {
@@ -22,6 +22,7 @@ pub fn run(args: &[String]) -> Result<i32> {
             cmd_bench(blocks, seed, use_gpu);
             Ok(0)
         }
+        "mesh" => crate::gpuhost::meshbench::cmd_mesh(&args[1..]),
         "corpus" => corpus::cmd_corpus(&args[1..]),
         "probe" => {
             gpu::cmd_probe();

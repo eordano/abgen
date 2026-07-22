@@ -27,6 +27,7 @@ dependencies = [
  "metrics-exporter-prometheus",
  "mimalloc",
  "moka",
+ "naga",
  "num_cpus",
  "psd",
  "rayon",

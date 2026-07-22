@@ -15,6 +15,8 @@ pub mod gpu;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod gpu_dispatch;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod gpu_mesh_dispatch;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod gpuhost;
 pub mod scene;
 
