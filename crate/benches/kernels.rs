@@ -161,6 +161,30 @@ fn dxt1(c: &mut Criterion) {
     group.finish()
 }
 
+fn bc5(c: &mut Criterion) {
+    let mut group = c.benchmark_group("bc5");
+    for (w, h) in [(256usize, 256usize), (1024, 1024)] {
+        let rgba = texture_rgba(w, h, 0x94D049BB);
+        group.throughput(Throughput::Bytes((w * h * 4) as u64));
+        group.bench_with_input(
+            BenchmarkId::from_parameter(format!("{w}x{h}")),
+            &rgba,
+            |b, src| {
+                b.iter(|| {
+                    abgen::bc5_pure::encode_bc5_mip_chain(
+                        black_box(src),
+                        w as u32,
+                        h as u32,
+                        None,
+                        false,
+                    )
+                })
+            },
+        );
+    }
+    group.finish()
+}
+
 fn resize(c: &mut Criterion) {
     let mut group = c.benchmark_group("resize");
     let (w, h) = (2048usize, 2048usize);
@@ -238,5 +262,5 @@ fn jpeg(c: &mut Criterion) {
     group.finish()
 }
 
-criterion_group!(kernels, bc7, dxt1, resize, lz4, crn, jpeg);
+criterion_group!(kernels, bc7, bc5, dxt1, resize, lz4, crn, jpeg);
 criterion_main!(kernels);
