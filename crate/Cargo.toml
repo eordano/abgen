@@ -146,3 +146,15 @@ rquickjs = { version = "0.12", default-features = false, features = ["bindgen"] 
 mimalloc = { version = "0.1.52", default-features = false }
 
 [target.'cfg(not(any(target_arch = "wasm32", all(target_os = "windows", target_env = "gnu"))))'.dependencies]
+
+[[bench]]
+name = "kernels"
+path = "benches/kernels.rs"
+harness = false
+
+[[bin]]
+name = "abgen-bench"
+path = "src/bin/abgen-bench.rs"
+
+[dev-dependencies]
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
