@@ -268,7 +268,11 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/nix-deps-cache
-          key: nix-deps-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crate/Cargo.toml', 'flake.lock', 'flake.nix', 'rust-toolchain.toml') }}
+          # '**/Cargo.toml' and not a hand-kept manifest list: crane's deps
+          # derivation depends on every workspace member manifest (dummy-src),
+          # and a manifest missing from this hash means a stale exact hit that
+          # skips the save and rebuilds deps on every later run.
+          key: nix-deps-${{ matrix.target }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', 'flake.lock', 'flake.nix', 'rust-toolchain.toml') }}
 
       - if: matrix.builder == 'rustup'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

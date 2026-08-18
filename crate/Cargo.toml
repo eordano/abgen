@@ -1,6 +1,6 @@
 [package]
 name = "abgen"
-version = "0.16.2"
+version.workspace = true
 edition = "2021"
 description = "Decentraland asset-bundle converter + ab-cdn-compatible JIT server — clean-room reimplementation of asset-bundle-converter."
 license = "Apache-2.0"
@@ -26,15 +26,6 @@ path = "src/bin/abgen-build.rs"
 name = "abgen-corpus"
 path = "src/bin/abgen-corpus/main.rs"
 
-[[bench]]
-name = "kernels"
-path = "benches/kernels.rs"
-harness = false
-
-[[bin]]
-name = "abgen-bench"
-path = "src/bin/abgen-bench.rs"
-
 [[bin]]
 name = "abgen-verify"
 path = "src/bin/abgen-verify.rs"
@@ -52,10 +43,6 @@ name = "matdump"
 path = "examples/matdump.rs"
 
 [[example]]
-name = "crndump"
-path = "examples/crndump.rs"
-
-[[example]]
 name = "objdump"
 path = "examples/objdump.rs"
 
@@ -64,35 +51,12 @@ name = "texcmp"
 path = "examples/texcmp.rs"
 
 [[example]]
-name = "texcmp2"
-path = "examples/texcmp2.rs"
-
-[[example]]
 name = "texpng"
 path = "examples/texpng.rs"
 
 [[example]]
-name = "jpegprobe"
-path = "examples/jpegprobe.rs"
-
-[[example]]
-name = "loddump"
-path = "examples/loddump.rs"
-
-[[example]]
-name = "lodaabb"
-path = "examples/lodaabb.rs"
-
-[[example]]
-name = "ressdump"
-path = "examples/ressdump.rs"
-
-[[example]]
 name = "atlasprobe"
 path = "examples/atlasprobe.rs"
-
-[features]
-engine-v8 = ["dep:v8"]
 
 [build-dependencies]
 # Compiles compat/isoc23_shim.c on linux-gnu — see crate/build.rs. Already in
@@ -161,10 +125,3 @@ rquickjs = { version = "0.12", default-features = false, features = ["bindgen"] 
 mimalloc = { version = "0.1.52", default-features = false }
 
 [target.'cfg(not(any(target_arch = "wasm32", all(target_os = "windows", target_env = "gnu"))))'.dependencies]
-v8 = { version = "=149.4.0", optional = true }
-
-[dev-dependencies]
-# Benches only. `cargo bench` is not part of any release lane, so this never
-# reaches a shipped artifact — but it does move Cargo.lock, and the recorded
-# reproducibility hashes derive from that.
-criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }

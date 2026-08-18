@@ -45,7 +45,7 @@ classifier is the spec). Setup details: [pipeline/README.md](pipeline/README.md)
 | `abgen-lod` | LOD lane CLI: `bundle`, `compare`, `placements`, `assemble`, `atlas`, `simplify`, `generate` |
 
 Plus `pipeline/abgen-compare` (Python >= 3.9, stdlib-only, run in place) and bundle-inspection examples
-(`texdump`, `matdump`, `objdump`, `crndump`, `texcmp`, `texpng`) under `target/release/examples/`.
+(`texdump`, `matdump`, `objdump`, `texcmp`, `texpng`) under `target/release/examples/`.
 `scripts/lod-parity.sh` runs the same baked LOD GLB through the legacy converter (a sibling
 [asset-bundle-converter](https://github.com/decentraland/asset-bundle-converter) checkout + editor) and
 through `abgen-lod bundle`, then diffs the two bundles (`abgen-lod compare` + `matdump`); `--site`

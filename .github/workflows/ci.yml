@@ -145,6 +145,17 @@ jobs:
           bash ../../ci/check-glibc-floor.sh 2.34 \
             target/release/libabgen_node.so
       - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+      # Its own '-wasm-' key family: this store only holds the wasm toolchain
+      # closure, and sharing a family with the image caches would let their
+      # purge rotation evict it (and vice versa).
+      - uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7
+        with:
+          primary-key: nix-${{ runner.os }}-${{ runner.arch }}-wasm-${{ hashFiles('crate/abgen-wasm/toolchain/flake.lock', 'crate/abgen-wasm/toolchain/flake.nix') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-${{ runner.arch }}-wasm-
+          purge: true
+          purge-prefixes: nix-${{ runner.os }}-${{ runner.arch }}-wasm-
+          purge-last-accessed: 604800
+          purge-primary-key: never
       - name: abgen-wasm (wasm32)
         run: |
           cd crate/abgen-wasm

@@ -25,7 +25,7 @@ per-entity hit/miss counts are logged and returned in the response.
 | 3 | S3 publishing — abgen's native "space" writes bundles + manifests through during the build; no `.br` variants (no client of this pipeline fetches them) | done |
 | 4 | registry SQS notification | deferred (registry duplicate is a follow-up) |
 | 5 | already-converted skip (entity-level manifest check) **and** per-file asset reuse (space probe per digest-named glb) | done |
-| 6 | container image (`Dockerfile.lambda`) | done |
+| 6 | container image (`nix build .#lambdaImage`) | done |
 
 ## Local run (no AWS)
 
@@ -72,10 +72,12 @@ them automatically.
 
 ## Container image & Lambda settings
 
-`Dockerfile.lambda` at the repo root (build with `--platform linux/arm64` —
-Graviton is ~20% cheaper and abgen is CPU-portable). The binary implements
-the Lambda runtime API itself, so no AWS base image is needed; push to ECR
-and point the function at the image.
+`nix build .#lambdaImage` (`packages.lambdaImage` in the root flake — build
+it on an aarch64-linux machine: Graviton is ~20% cheaper and abgen is
+CPU-portable). The binary implements the Lambda runtime API itself, so no
+AWS base image is needed; the result is a `docker-archive` tarball — push it
+to ECR with skopeo (see `.github/workflows/lambda-image.yml`) and point the
+function at the image.
 
 Recommended function config:
 

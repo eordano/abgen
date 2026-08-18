@@ -1,6 +1,9 @@
 [workspace]
 resolver = "2"
 members = ["crate", "crate/dcl-contents", "crate/abgen-native", "lambda"]
+# exclude must stay inside [workspace] (i.e. above any [workspace.*] section
+# header): under [workspace.package] it silently becomes the packaging
+# file-exclude and the vendored path deps turn into implicit members.
 exclude = [
     "crate/third_party/draco_decoder",
     "crate/third_party/crunch",
@@ -9,3 +12,11 @@ exclude = [
     "crate/abgen-wasm",
     "crate/abgen-node",
 ]
+
+# The one version for everything in this repo. Members inherit it via
+# `version.workspace = true`; the flake reads it for package versions and
+# container image tags. The npm packages stay at 0.0.0-dev and are stamped
+# from the git tag at publish time (release.yml), and release tags should
+# match this field.
+[workspace.package]
+version = "0.16.2"

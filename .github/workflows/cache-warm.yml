@@ -1,0 +1,67 @@
+name: cache-warm
+
+# Populates the nix store caches that image.yml (x86_64) and lambda-image.yml
+# (aarch64) restore. Those workflows run on tags, and GitHub scopes cache
+# saves to the ref that made them — a save from tag vN is invisible to tag
+# vN+1. Saves from the default branch are readable from every ref, so this
+# workflow builds both images on main pushes; a release tag then lands on a
+# warm cache (seconds of substitution instead of a full cargo build).
+#
+# Runs only when build inputs change; a no-op run (restore, nix decides
+# nothing to do, exact-hit skips the save) costs a couple of minutes.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "flake.nix"
+      - "flake.lock"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "crate/**"
+      - "lambda/**"
+      - "template/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cache-warm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  warm:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            package: dockerImage
+          - runner: ubuntu-24.04-arm
+            package: lambdaImage
+    name: warm ${{ matrix.package }} (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+        with:
+          extra-conf: |
+            max-jobs = auto
+            cores = 0
+
+      # Must stay identical (key scheme and purge settings) to the blocks in
+      # image.yml / lambda-image.yml — this job writes what those restore.
+      - uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7
+        with:
+          primary-key: nix-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock', 'Cargo.lock', '**/Cargo.toml', 'flake.nix', 'rust-toolchain.toml') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-${{ runner.arch }}-
+          gc-max-store-size-linux: 4294967296
+          purge: true
+          purge-prefixes: nix-${{ runner.os }}-${{ runner.arch }}-
+          purge-last-accessed: 604800
+          purge-primary-key: never
+
+      - name: build
+        run: nix build .#${{ matrix.package }} --print-build-logs

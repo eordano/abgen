@@ -26,10 +26,22 @@ jobs:
             max-jobs = auto
             cores = 0
 
+      # runner.arch is part of the key: lambda-image.yml writes an aarch64
+      # cache under the same prefix scheme and the two must never cross.
+      # The key hashes everything the crane deps derivation depends on
+      # ('**/Cargo.toml' — every member manifest feeds dummy-src; a manifest
+      # missing here would produce a stale exact hit that never re-saves).
+      # cache-warm.yml populates the same keys on main pushes so tag builds
+      # start warm. Purge settings keep the family under the 10 GB repo cap.
       - uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7
         with:
-          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock', 'Cargo.lock') }}
-          restore-prefixes-first-match: nix-${{ runner.os }}-
+          primary-key: nix-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock', 'Cargo.lock', '**/Cargo.toml', 'flake.nix', 'rust-toolchain.toml') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-${{ runner.arch }}-
+          gc-max-store-size-linux: 4294967296
+          purge: true
+          purge-prefixes: nix-${{ runner.os }}-${{ runner.arch }}-
+          purge-last-accessed: 604800
+          purge-primary-key: never
 
       - name: build image
         run: |
@@ -53,7 +65,7 @@ jobs:
           echo 'unqualified-search-registries = []' > "$conf"
           for tag in "${REF}" latest; do
             echo "::group::push ghcr.io/${repo}:${tag}"
-            nix run nixpkgs#skopeo -- --registries-conf "$conf" --insecure-policy copy \
+            nix run --inputs-from . nixpkgs#skopeo -- --registries-conf "$conf" --insecure-policy copy \
               --dest-creds "${{ github.actor }}:${{ github.token }}" \
               "docker-archive:$(readlink -f result)" \
               "docker://ghcr.io/${repo}:${tag}"
