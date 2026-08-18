@@ -177,3 +177,6 @@ path = "tests/crn_parity.rs"
 name = "dxt1_corpus_hash"
 path = "tests/dxt1_corpus_hash.rs"
 harness = true
+[[test]]
+name = "dxt1_hash"
+path = "tests/dxt1_hash.rs"

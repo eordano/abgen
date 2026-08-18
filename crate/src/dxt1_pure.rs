@@ -31,6 +31,18 @@ fn unpack_565(c: u16) -> [u8; 3] {
 // the planar transpose only added work). Reverted to the original; see
 // ~/results/dxt1m.json.
 fn encode_block(rgba: &[u8; 64]) -> [u8; BLOCK_SIZE] {
+    #[cfg(target_arch = "aarch64")]
+    {
+        neon::encode_block_neon(rgba)
+    }
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        encode_block_scalar(rgba)
+    }
+}
+
+#[cfg_attr(target_arch = "aarch64", allow(dead_code))]
+fn encode_block_scalar(rgba: &[u8; 64]) -> [u8; BLOCK_SIZE] {
     let mut pix = [[0u8; 3]; 16];
     for i in 0..16 {
         pix[i] = [rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]];
@@ -150,6 +162,197 @@ fn encode_block(rgba: &[u8; 64]) -> [u8; BLOCK_SIZE] {
     out[6] = ((bits >> 16) & 0xFF) as u8;
     out[7] = ((bits >> 24) & 0xFF) as u8;
     out
+}
+
+#[cfg(target_arch = "aarch64")]
+mod neon {
+    //! NEON port of `encode_block_scalar`. Bit-identical by construction:
+    //! every float accumulation keeps the exact per-entry operation order of
+    //! the scalar code (independent SIMD lanes, no FMA, no reassociation),
+    //! and the integer palette-distance search uses |a-b|^2 == (a-b)^2 with
+    //! the same strict-less-than / lowest-index tie-breaking.
+    use super::{pack_565, unpack_565, BLOCK_SIZE};
+    use std::arch::aarch64::*;
+
+    pub(super) fn encode_block_neon(rgba: &[u8; 64]) -> [u8; BLOCK_SIZE] {
+        unsafe {
+            // Per-pixel [r, g, b, 0] as f32 lanes (u8 -> f32 is exact).
+            let mut pixf = [vdupq_n_f32(0.0); 16];
+            for i in 0..16 {
+                let q = [
+                    rgba[i * 4] as f32,
+                    rgba[i * 4 + 1] as f32,
+                    rgba[i * 4 + 2] as f32,
+                    0.0f32,
+                ];
+                pixf[i] = vld1q_f32(q.as_ptr());
+            }
+
+            // Mean: per-channel sums accumulate in pixel order, then / 16.0.
+            let mut macc = vdupq_n_f32(0.0);
+            for p in &pixf {
+                macc = vaddq_f32(macc, *p);
+            }
+            let meanv = vdivq_f32(macc, vdupq_n_f32(16.0));
+
+            // Covariance: cov[a][b] += d[a] * d[b], per entry in pixel order.
+            let mut cacc0 = vdupq_n_f32(0.0);
+            let mut cacc1 = vdupq_n_f32(0.0);
+            let mut cacc2 = vdupq_n_f32(0.0);
+            for p in &pixf {
+                let d = vsubq_f32(*p, meanv);
+                cacc0 = vaddq_f32(cacc0, vmulq_f32(vdupq_laneq_f32::<0>(d), d));
+                cacc1 = vaddq_f32(cacc1, vmulq_f32(vdupq_laneq_f32::<1>(d), d));
+                cacc2 = vaddq_f32(cacc2, vmulq_f32(vdupq_laneq_f32::<2>(d), d));
+            }
+            let cov = [
+                [
+                    vgetq_lane_f32::<0>(cacc0),
+                    vgetq_lane_f32::<1>(cacc0),
+                    vgetq_lane_f32::<2>(cacc0),
+                ],
+                [
+                    vgetq_lane_f32::<0>(cacc1),
+                    vgetq_lane_f32::<1>(cacc1),
+                    vgetq_lane_f32::<2>(cacc1),
+                ],
+                [
+                    vgetq_lane_f32::<0>(cacc2),
+                    vgetq_lane_f32::<1>(cacc2),
+                    vgetq_lane_f32::<2>(cacc2),
+                ],
+            ];
+
+            // Power iteration: tiny, keep the scalar code verbatim.
+            let mut axis = [1f32, 1f32, 1f32];
+            for _ in 0..6 {
+                let mut n = [0f32; 3];
+                for a in 0..3 {
+                    for b in 0..3 {
+                        n[a] += cov[a][b] * axis[b];
+                    }
+                }
+                let mag = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+                if mag < 1e-6 {
+                    axis = [1.0, 1.0, 1.0];
+                    break;
+                }
+                axis = [n[0] / mag, n[1] / mag, n[2] / mag];
+            }
+
+            // Projection: d = ((t0) + (t1)) + t2, exactly the scalar order.
+            let axq = [axis[0], axis[1], axis[2], 0.0f32];
+            let axisv = vld1q_f32(axq.as_ptr());
+            let mut min_dot = f32::INFINITY;
+            let mut max_dot = f32::NEG_INFINITY;
+            let mut min_i = 0usize;
+            let mut max_i = 0usize;
+            for (i, p) in pixf.iter().enumerate() {
+                let t = vmulq_f32(vsubq_f32(*p, meanv), axisv);
+                let d =
+                    (vgetq_lane_f32::<0>(t) + vgetq_lane_f32::<1>(t)) + vgetq_lane_f32::<2>(t);
+                if d < min_dot {
+                    min_dot = d;
+                    min_i = i;
+                }
+                if d > max_dot {
+                    max_dot = d;
+                    max_i = i;
+                }
+            }
+            let mut c0 = pack_565(rgba[max_i * 4], rgba[max_i * 4 + 1], rgba[max_i * 4 + 2]);
+            let mut c1 = pack_565(rgba[min_i * 4], rgba[min_i * 4 + 1], rgba[min_i * 4 + 2]);
+
+            if c0 == c1 {
+                if c1 > 0 {
+                    c1 -= 1;
+                } else {
+                    c0 += 1;
+                }
+            }
+            if c0 < c1 {
+                std::mem::swap(&mut c0, &mut c1);
+            }
+
+            let ep0 = unpack_565(c0);
+            let ep1 = unpack_565(c1);
+            let palette: [[u8; 3]; 4] = [
+                ep0,
+                ep1,
+                [
+                    ((2u16 * ep0[0] as u16 + ep1[0] as u16) / 3) as u8,
+                    ((2u16 * ep0[1] as u16 + ep1[1] as u16) / 3) as u8,
+                    ((2u16 * ep0[2] as u16 + ep1[2] as u16) / 3) as u8,
+                ],
+                [
+                    ((ep0[0] as u16 + 2u16 * ep1[0] as u16) / 3) as u8,
+                    ((ep0[1] as u16 + 2u16 * ep1[1] as u16) / 3) as u8,
+                    ((ep0[2] as u16 + 2u16 * ep1[2] as u16) / 3) as u8,
+                ],
+            ];
+
+            // Index selection: all 16 pixels x 4 palette entries at once.
+            let quad = vld4q_u8(rgba.as_ptr());
+            let (pr, pg, pb) = (quad.0, quad.1, quad.2);
+
+            // e[k][g]: squared distances to palette k for pixel group g (4 px).
+            let mut e = [[vdupq_n_u32(0); 4]; 4];
+            for (k, pc) in palette.iter().enumerate() {
+                let dr = vabdq_u8(pr, vdupq_n_u8(pc[0]));
+                let dg = vabdq_u8(pg, vdupq_n_u8(pc[1]));
+                let db = vabdq_u8(pb, vdupq_n_u8(pc[2]));
+                let sr_l = vmull_u8(vget_low_u8(dr), vget_low_u8(dr));
+                let sr_h = vmull_u8(vget_high_u8(dr), vget_high_u8(dr));
+                let sg_l = vmull_u8(vget_low_u8(dg), vget_low_u8(dg));
+                let sg_h = vmull_u8(vget_high_u8(dg), vget_high_u8(dg));
+                let sb_l = vmull_u8(vget_low_u8(db), vget_low_u8(db));
+                let sb_h = vmull_u8(vget_high_u8(db), vget_high_u8(db));
+                e[k][0] = vaddw_u16(
+                    vaddl_u16(vget_low_u16(sr_l), vget_low_u16(sg_l)),
+                    vget_low_u16(sb_l),
+                );
+                e[k][1] = vaddw_u16(
+                    vaddl_u16(vget_high_u16(sr_l), vget_high_u16(sg_l)),
+                    vget_high_u16(sb_l),
+                );
+                e[k][2] = vaddw_u16(
+                    vaddl_u16(vget_low_u16(sr_h), vget_low_u16(sg_h)),
+                    vget_low_u16(sb_h),
+                );
+                e[k][3] = vaddw_u16(
+                    vaddl_u16(vget_high_u16(sr_h), vget_high_u16(sg_h)),
+                    vget_high_u16(sb_h),
+                );
+            }
+
+            let mut idx = [0u32; 16];
+            for g in 0..4 {
+                let mut best_e = e[0][g];
+                let mut best_i = vdupq_n_u32(0);
+                for (k, ek) in e.iter().enumerate().skip(1) {
+                    let m = vcltq_u32(ek[g], best_e);
+                    best_e = vbslq_u32(m, ek[g], best_e);
+                    best_i = vbslq_u32(m, vdupq_n_u32(k as u32), best_i);
+                }
+                vst1q_u32(idx.as_mut_ptr().add(g * 4), best_i);
+            }
+            let mut bits = 0u32;
+            for (i, v) in idx.iter().enumerate() {
+                bits |= v << (2 * i);
+            }
+
+            let mut out = [0u8; BLOCK_SIZE];
+            out[0] = (c0 & 0xFF) as u8;
+            out[1] = ((c0 >> 8) & 0xFF) as u8;
+            out[2] = (c1 & 0xFF) as u8;
+            out[3] = ((c1 >> 8) & 0xFF) as u8;
+            out[4] = (bits & 0xFF) as u8;
+            out[5] = ((bits >> 8) & 0xFF) as u8;
+            out[6] = ((bits >> 16) & 0xFF) as u8;
+            out[7] = ((bits >> 24) & 0xFF) as u8;
+            out
+        }
+    }
 }
 
 fn pad_to_block_size(rgba: &[u8], w: usize, h: usize) -> (Vec<u8>, usize, usize) {
@@ -724,5 +927,82 @@ mod tests {
             hex,
             "ab454890f11ebab06f6346a0ebd887a1dfe9ebb61d82cab0eedc5b2675f002cd"
         );
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn neon_encode_block_matches_scalar_bit_identical() {
+        let mut blocks: Vec<[u8; 64]> = Vec::new();
+
+        // Flat blocks at extremes and mid values (hits the c0 == c1 paths).
+        for v in [0u8, 1, 7, 8, 127, 128, 247, 248, 254, 255] {
+            blocks.push([v; 64]);
+        }
+        // Flat per-channel extremes.
+        for (r, g, b) in [
+            (255u8, 0u8, 0u8),
+            (0, 255, 0),
+            (0, 0, 255),
+            (255, 255, 0),
+            (0, 255, 255),
+            (255, 0, 255),
+        ] {
+            let mut blk = [0u8; 64];
+            for i in 0..16 {
+                blk[i * 4] = r;
+                blk[i * 4 + 1] = g;
+                blk[i * 4 + 2] = b;
+                blk[i * 4 + 3] = 255;
+            }
+            blocks.push(blk);
+        }
+        // Two-value blocks that quantize to the same 565 color.
+        for (a, b) in [(0u8, 7u8), (248, 255), (16, 23)] {
+            let mut blk = [0u8; 64];
+            for i in 0..16 {
+                let v = if i % 2 == 0 { a } else { b };
+                blk[i * 4] = v;
+                blk[i * 4 + 1] = v;
+                blk[i * 4 + 2] = v;
+                blk[i * 4 + 3] = 255;
+            }
+            blocks.push(blk);
+        }
+        // Gradients (exercise palette ties along the axis) with alpha noise.
+        for step in [1u8, 4, 8, 16] {
+            let mut blk = [0u8; 64];
+            for i in 0..16 {
+                let v = (i as u8).wrapping_mul(step);
+                blk[i * 4] = v;
+                blk[i * 4 + 1] = v;
+                blk[i * 4 + 2] = 255u8.wrapping_sub(v);
+                blk[i * 4 + 3] = if i % 3 == 0 { 0 } else { 255 };
+            }
+            blocks.push(blk);
+        }
+        // Random blocks, including low-entropy ones (masked to few values).
+        let mut s = 0x9E37_79B9_7F4A_7C15u64;
+        for r in 0..4096 {
+            let mut blk = [0u8; 64];
+            let mask = match r % 4 {
+                0 => 0xFFu8,
+                1 => 0xF8,
+                2 => 0x0F,
+                _ => 0x03,
+            };
+            for chunk in blk.chunks_exact_mut(8) {
+                let v = xorshift(&mut s).to_le_bytes();
+                for (dst, src) in chunk.iter_mut().zip(v.iter()) {
+                    *dst = src & mask;
+                }
+            }
+            blocks.push(blk);
+        }
+
+        for (bi, blk) in blocks.iter().enumerate() {
+            let sc = encode_block_scalar(blk);
+            let ne = neon::encode_block_neon(blk);
+            assert_eq!(sc, ne, "block {bi} diverged: scalar {sc:?} vs neon {ne:?}");
+        }
     }
 }
