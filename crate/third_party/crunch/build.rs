@@ -120,6 +120,15 @@ fn main() {
         .flag_if_supported("-Wno-nonnull")
         .warnings(false);
 
+    // Lambda runs on Graviton2 (Neoverse N1). Tune for it when targeting
+    // aarch64-linux; scheduling/tuning only, so encoder output stays
+    // byte-identical (verified by tests/crn_parity.rs — no fast-math here).
+    if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("aarch64")
+        && std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux")
+    {
+        build.flag_if_supported("-mcpu=neoverse-n1");
+    }
+
     let is_wasm = std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("wasm32");
     if is_wasm {
         build.flag("-fno-exceptions");

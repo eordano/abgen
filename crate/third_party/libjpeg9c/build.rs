@@ -43,6 +43,16 @@ fn main() {
         .flag_if_supported("-Wno-shift-negative-value")
         .warnings(false);
 
+    // Lambda runs on Graviton2 (Neoverse N1). Later -O wins, so this lifts
+    // the -O2 above to -O3 on aarch64-linux and tunes for N1. Decoder output
+    // stays byte-identical (verified by tests/crn_parity.rs).
+    if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("aarch64")
+        && std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux")
+    {
+        build.flag_if_supported("-O3");
+        build.flag_if_supported("-mcpu=neoverse-n1");
+    }
+
     if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("wasm32") {
         build
             .flag("-mexception-handling")

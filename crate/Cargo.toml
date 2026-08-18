@@ -158,3 +158,18 @@ path = "src/bin/abgen-bench.rs"
 
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+
+[[example]]
+name = "bc7-parity-o08"
+path = "examples/bc7_parity_o08.rs"
+
+[[test]]
+name = "o15_parity"
+path = "tests/o15_parity.rs"
+[[test]]
+name = "bc7_parity"
+path = "tests/bc7_parity.rs"
+harness = true
+[[test]]
+name = "crn_parity"
+path = "tests/crn_parity.rs"
