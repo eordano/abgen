@@ -173,3 +173,7 @@ harness = true
 [[test]]
 name = "crn_parity"
 path = "tests/crn_parity.rs"
+[[test]]
+name = "dxt1_corpus_hash"
+path = "tests/dxt1_corpus_hash.rs"
+harness = true
