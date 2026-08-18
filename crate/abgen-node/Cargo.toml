@@ -16,7 +16,7 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-abgen = { path = ".." }
+abgen = { path = "..", default-features = false }
 napi = { version = "2.16", default-features = false, features = ["napi8", "async", "tokio_rt"] }
 napi-derive = "2.16"
 tokio = { version = "1", features = ["rt-multi-thread"] }

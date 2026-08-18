@@ -20,15 +20,9 @@
           ./rust-toolchain.toml
           ./crate
           ./template
-          # lambda is a workspace member, so cargo refuses to load the
-          # workspace without its manifest and sources. Only the parts cargo
-          # compiles — README and example event payloads stay out.
           ./lambda/Cargo.toml
           ./lambda/src
         ])
-        # buildId is embedded in every binary. Neither npm scaffolding nor prose
-        # can change compiled output, so including them would move all six
-        # targets' artifact hashes on a packaging or typo edit.
         (lib.fileset.unions [
           ./crate/abgen-node/npm
           (lib.fileset.fileFilter (file: file.hasExt "md") ./crate)
@@ -80,8 +74,6 @@
           ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ gcc ];
           sharedLibExt = pkgs.stdenv.hostPlatform.extensions.sharedLibrary;
 
-          # Single version source for the whole repo: [workspace.package] in the
-          # root Cargo.toml. Crate versions inherit it and both image tags use it.
           repoVersion = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
 
           commonArgs = {
@@ -100,17 +92,22 @@
             cargoExtraArgs = "--locked --bin abgen";
           });
 
+          # -p narrows package selection: a bare `--bin abgen-lambda` from the
+          # workspace root keeps every member selected and feature unification
+          # re-enables abgen's default `server` feature, shipping the axum/sqlx
+          # stack in the Lambda image. Own deps-only artifact so the cache holds
+          # the no-server feature flavor rather than rebuilding it here.
+          lambdaCargoArtifacts = craneLib.buildDepsOnly (commonArgs // {
+            pname = "abgen-lambda";
+            cargoExtraArgs = "--locked -p abgen-lambda";
+          });
           abgenLambdaPkg = craneLib.buildPackage (commonArgs // {
-            inherit cargoArtifacts;
+            cargoArtifacts = lambdaCargoArtifacts;
             pname = "abgen-lambda";
             env = buildEnv;
-            cargoExtraArgs = "--locked --bin abgen-lambda";
+            cargoExtraArgs = "--locked -p abgen-lambda --bin abgen-lambda";
           });
 
-          # Build templates are embedded in the binaries; ABGEN_ROOT overrides
-          # them with these identical files and, more importantly, carries the
-          # vendored shader payloads (~1.4 MB) so shader seeding can run from
-          # either image without a rebuild.
           runtimeData = pkgs.runCommand "abgen-runtime" { } ''
             mkdir -p $out/opt/abgen
             cp -r ${buildSource}/template $out/opt/abgen/template
@@ -178,23 +175,12 @@
             };
           };
 
-          # The asset-bundle conversion pipeline as one AWS Lambda container
-          # image. See lambda/README.md.
-          #
-          # Deliberately NOT based on public.ecr.aws/lambda/provided: the
-          # binary implements the Lambda runtime API itself
-          # (lambda/src/runtime.rs), so any image works, and this mirrors
-          # dockerImage — same runtime payload layout. Build for Graviton (20%
-          # cheaper Lambda compute; abgen is CPU-portable) by building this
-          # output on an aarch64-linux machine.
           packages.lambdaImage = pkgs.dockerTools.buildLayeredImage {
             name = "abgen-lambda";
             tag = repoVersion;
             contents = [ abgenLambdaPkg pkgs.cacert pkgs.libjpeg_turbo runtimeData ];
             config = {
               Entrypoint = [ "${abgenLambdaPkg}/bin/abgen-lambda" ];
-              # Lambda's filesystem is read-only except /tmp; size ephemeral
-              # storage accordingly (10 GB recommended).
               Env = [
                 "ABGEN_ROOT=/opt/abgen"
                 "ABGEN_CACHE_DIR=/tmp/abgen-cache"

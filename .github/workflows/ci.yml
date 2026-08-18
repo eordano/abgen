@@ -85,6 +85,9 @@ jobs:
           ! grep -rn 'Command::new("npm\|Command::new("node' crate/src
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: ABGEN_ROOT="$GITHUB_WORKSPACE" cargo test --locked --workspace --lib -- --test-threads=1
+      # Also the only build of abgen with default-features = false, which is how
+      # every non-server consumer (lambda, native, wasm) depends on it.
+      - run: cargo test --locked -p abgen-lambda
       - run: ABGEN_ROOT="$GITHUB_WORKSPACE" cargo test --locked -p abgen-native --tests
       - name: C ABI smoke test
         run: ABGEN_ROOT="$GITHUB_WORKSPACE" crate/abgen-native/tests/run-smoke.sh

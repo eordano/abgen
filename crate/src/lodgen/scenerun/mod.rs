@@ -267,9 +267,6 @@ module.exports.onUpdate = async function () {
         (client, ent)
     }
 
-    /// Goldens are pinned to LF in .gitattributes. Normalising here too means
-    /// the comparison does not depend on the checkout honouring that — a CRLF
-    /// working copy failed this on Windows and nowhere else.
     fn lf(s: &str) -> String {
         s.replace("\r\n", "\n")
     }

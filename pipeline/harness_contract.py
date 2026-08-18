@@ -111,7 +111,6 @@ class Job:
             raise ValueError(f"unknown kind {self.kind!r} (want one of {KINDS})")
         return f"{self.label}|{self.kind}|{self.bundle}|{self.deps_dir}"
 
-
 def parse_job_line(line: str) -> Job | None:
     """Parse one jobs-file line; None for blanks/comments. Mirrors the C# parser
     (including the legacy 3-field = glb form)."""
@@ -125,7 +124,6 @@ def parse_job_line(line: str) -> Job | None:
         return Job(parts[0], "glb", parts[1], parts[2])
     raise ValueError(f"unparseable job line: {line!r}")
 
-
 def write_jobs(path: str | Path, jobs: Iterable[Job]) -> int:
     """Write a jobs file; returns the number of jobs written."""
     jobs = list(jobs)
@@ -136,18 +134,14 @@ def write_jobs(path: str | Path, jobs: Iterable[Job]) -> int:
 def inventory_name(label: str) -> str:
     return f"{label}.inventory.json"
 
-
 def failed_name(label: str) -> str:
     return f"{label}.FAILED.txt"
-
 
 def anim_meta_name(label: str) -> str:
     return f"{label}.anim.json"
 
-
 def anim_failed_name(label: str) -> str:
     return f"{label}.ANIMFAILED.txt"
-
 
 def render_outputs(label: str, kind: str, n_azimuths: int = len(DEFAULT_AZIMUTHS)) -> list[str]:
     """Filenames AbVisualCompare produces for a *successful* job (texture jobs
@@ -161,11 +155,9 @@ def render_outputs(label: str, kind: str, n_azimuths: int = len(DEFAULT_AZIMUTHS
     out.append(inventory_name(label))
     return out
 
-
 def anim_outputs(label: str, frames: int = DEFAULT_FRAMES) -> list[str]:
     """Filenames AbAnimCapture produces for a successful animated job."""
     return [f"{label}-f{k:02d}.png" for k in range(frames)] + [anim_meta_name(label)]
-
 
 def harvest(out_dir: str | Path, labels: Sequence[str],
             kinds: dict[str, str] | None = None,
@@ -206,7 +198,6 @@ def shader_relpath(platform: str) -> str:
         raise ValueError(f"unknown platform {platform!r} (want one of {PLATFORMS})")
     return SHADER_RELPATH.format(platform=platform)
 
-
 def stage_ab_root(ab_root: str | Path, platform: str,
                   shader_bundle: str | Path | None = None,
                   jobs: Iterable[Job] | None = None,
@@ -216,9 +207,6 @@ def stage_ab_root(ab_root: str | Path, platform: str,
     root = Path(ab_root)
     out = root / "out"
     if out.is_dir():
-        # a reused staging root (e.g. WSL win-staging) accumulates prior
-        # runs' renders; a stale same-label file would classify as fresh
-        # whenever Unity fails, so staging always starts from an empty out/
         shutil.rmtree(out)
     out.mkdir(parents=True, exist_ok=True)
     (root / "shader").mkdir(parents=True, exist_ok=True)
@@ -230,7 +218,6 @@ def stage_ab_root(ab_root: str | Path, platform: str,
 
 MARKER_PREFIX = "// abgen-harness "
 
-
 def managed_text(src_text: str) -> str:
     """The exact file content an installed (managed) harness script has:
     marker header + verbatim source."""
@@ -239,7 +226,6 @@ def managed_text(src_text: str) -> str:
     return (f"{MARKER_PREFIX}sha256:{sha} — installed by the abgen compare "
             f"pipeline (harness_contract.ensure_scripts); local edits will "
             f"be overwritten on the next render\n{src_text}")
-
 
 def script_status(project_dir: str | Path,
                   harness_dir: str | Path = HARNESS_DIR,
@@ -266,7 +252,6 @@ def script_status(project_dir: str | Path,
         else:
             out[name] = "foreign"
     return out
-
 
 def ensure_scripts(project_dir: str | Path,
                    harness_dir: str | Path = HARNESS_DIR,
@@ -300,7 +285,6 @@ def ensure_scripts(project_dir: str | Path,
 
 _VERSION_RE = r"\d+\.\d+\.\d+[abfp]\d+"
 
-
 def editor_version_from_path(unity: str | None) -> str | None:
     """Best-effort editor version parsed from the binary path (Hub installs
     embed it: .../Hub/Editor/<version>/...). None when not inferable —
@@ -310,7 +294,6 @@ def editor_version_from_path(unity: str | None) -> str | None:
         return None
     m = re.search(_VERSION_RE, str(unity))
     return m.group(0) if m else None
-
 
 def project_editor_version(project_dir: str | Path | None) -> str | None:
     """m_EditorVersion from ProjectSettings/ProjectVersion.txt; None when the
@@ -328,7 +311,6 @@ def project_editor_version(project_dir: str | Path | None) -> str | None:
     return None
 
 PROJECT_MODES = ("unity-explorer", "template", "custom", "none")
-
 
 def project_mode(project_dir: str | Path | None) -> str:
     if not project_dir or not (Path(project_dir) / "Assets").is_dir():
@@ -355,7 +337,6 @@ def project_mode(project_dir: str | Path | None) -> str:
         pass
     return "custom"
 
-
 def install_scripts(project_dir: str | Path, harness_dir: str | Path = HARNESS_DIR,
                     scripts: Sequence[str] = HARNESS_SCRIPTS) -> list[str]:
     """Deprecated shim — use :func:`ensure_scripts` (markered, idempotent,
@@ -376,7 +357,6 @@ def unity_cmd(unity_binary: str, project_dir: str, log_file: str,
         "-executeMethod", method,
         "-logFile", log_file,
     ]
-
 
 def harness_env(ab_root: str, platform: str, *,
                 jobs_name: str | None = None,
@@ -400,7 +380,6 @@ def harness_env(ab_root: str, platform: str, *,
     if anim_size is not None:
         env["AB_ANIM_SIZE"] = str(anim_size)
     return env
-
 
 def windows_schtasks_cmds(task_name: str, bat_path: str) -> list[str]:
     """Windows render hosts driven over **remote ssh**: Unity started from an

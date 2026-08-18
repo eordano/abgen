@@ -339,7 +339,6 @@ def _assert_public_url(url):
                 or (ip.version == 4 and ip in cgnat)):
             raise ValueError(f'host {host} resolves to non-public address {ip}')
 
-
 def _http_ok(url, timeout=6, trusted=False):
     if not trusted:
         _assert_public_url(url)
@@ -675,9 +674,6 @@ class H(SimpleHTTPRequestHandler):
         pass
 
     def end_headers(self):
-        # crossOriginIsolated: the wasm converter's WebGPU bridge needs
-        # SharedArrayBuffer + Atomics.wait in workers. Everything the site
-        # loads is same-origin, so isolation costs nothing.
         self.send_header('Cross-Origin-Opener-Policy', 'same-origin')
         self.send_header('Cross-Origin-Embedder-Policy', 'require-corp')
         super().end_headers()

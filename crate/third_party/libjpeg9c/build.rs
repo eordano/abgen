@@ -44,8 +44,6 @@ fn main() {
         .warnings(false);
 
     if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("wasm32") {
-        // wasi-libc's setjmp.h requires the Wasm-SjLj transform (wasm EH);
-        // scoped here so the other vendored C libraries compile unchanged.
         build
             .flag("-mexception-handling")
             .flag("-mllvm")

@@ -15,7 +15,6 @@ from .util import free_port, http_get
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-
 def _binary():
     for rel in ("target/release/abgen", "result/bin/abgen"):
         p = os.path.join(REPO_ROOT, rel)
@@ -25,7 +24,6 @@ def _binary():
         "abgen server binary not found — build it first: "
         "cargo build --release (or nix build .#) in " + REPO_ROOT
     )
-
 
 def _turbojpeg_lib():
     if os.environ.get("TURBOJPEG_LIB"):
@@ -43,7 +41,6 @@ def _turbojpeg_lib():
             return hits[0]
     return None
 
-
 def server_health(url):
     status, body = http_get(url.rstrip("/") + "/health", timeout=4, retries=0)
     if status is None or not body:
@@ -52,7 +49,6 @@ def server_health(url):
         return status, json.loads(body)
     except ValueError:
         return None
-
 
 class LocalServer:
     """Context manager: .url usable after __enter__; spawned process reaped."""
@@ -70,7 +66,6 @@ class LocalServer:
 
     def __enter__(self):
         if self.force_spawn:
-            # determinism runs must NOT be satisfied by a warm shared cache
             self.log("ours-server: force_spawn — skipping healthy-server probe")
         else:
             h = server_health(self.prefer_url)

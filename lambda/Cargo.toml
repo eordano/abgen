@@ -10,7 +10,10 @@ name = "abgen-lambda"
 path = "src/main.rs"
 
 [dependencies]
-abgen = { path = "../crate" }
+# default-features = false drops abgen's `server` feature: the Lambda only
+# runs the conversion core and talks HTTP, so the axum/sqlx/tokio stack —
+# including a double compile of sqlx-postgres — stays out of this build.
+abgen = { path = "../crate", default-features = false }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

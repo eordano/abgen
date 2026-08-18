@@ -28,22 +28,16 @@ DEF_OUT_ROOT = os.environ.get('ABGEN_LOD_OUT_ROOT') or os.path.join(REPO, 'out')
 DEF_RUNS = os.environ.get('ABGEN_RUNS_DIR') or os.path.join(REPO, 'runs')
 PROD_BASE = os.environ.get('ABGEN_LOD_PROD_BASE') or 'https://ab-cdn.decentraland.org/LOD/1/'
 CONTENT_LOCAL = os.environ.get('ABGEN_LOD_CONTENT_URL') or 'http://127.0.0.1:5141/contents/'
-# Era gate: only compare prod LODs whose scene is registered at asset-bundle
-# version v49+ (the current LOD lane). The version is not recorded inside the
-# bundle, so it comes from the asset-bundle-registry, keyed by base pointer.
-# Set ABGEN_LOD_REGISTRY_URL='' to disable the gate (compare everything).
 REGISTRY_BASE = os.environ.get('ABGEN_LOD_REGISTRY_URL',
                                'https://asset-bundle-registry.decentraland.org')
 MIN_AB_VERSION = 49
 UA = {'User-Agent': 'curl/8.9 (lodsite dataset builder)'}
-
 
 def ab_version_num(v):
     try:
         return int(str(v).strip().lstrip('vV'))
     except (ValueError, TypeError):
         return None
-
 
 def _registry_post(route, pointer):
     body = json.dumps({'pointers': [pointer]}).encode()
@@ -52,7 +46,6 @@ def _registry_post(route, pointer):
         headers={**UA, 'content-type': 'application/json'})
     with urllib.request.urlopen(req, timeout=15) as r:
         return json.load(r)
-
 
 def registry_era(scene, pointer, platform):
     """(ab_version, is_current) for the scene at `pointer`. The registry is
@@ -72,7 +65,6 @@ def registry_era(scene, pointer, platform):
         print(f'  {scene}: registry era lookup failed: {e}', file=sys.stderr)
         return '', False
 
-
 def find_tool(env, *cands):
     p = os.environ.get(env)
     if p:
@@ -82,7 +74,6 @@ def find_tool(env, *cands):
         if os.path.isfile(c):
             return c
     return cands[0]
-
 
 ABGEN_LOD = find_tool('ABGEN_LOD_BIN',
                       'target/release/abgen-lod',
@@ -97,14 +88,12 @@ TEX_RE = re.compile(r'^Texture2D name=(.+) fmt=(-?\d+) (\d+)x(\d+) mipCount=(\d+
 MIP_RE = re.compile(r'^\s+mip(\d+) (\d+)x(\d+) meanRGBA=\(([^)]+)\) meanLuma=([\d.]+).*nearBlack=([\d.]+)')
 OCC_RE = re.compile(r'occupancy\(vs [^)]+\)=([\d.]+) bgFrac=([\d.]+)')
 
-
 def sha256(path):
     h = hashlib.sha256()
     with open(path, 'rb') as f:
         for chunk in iter(lambda: f.read(1 << 20), b''):
             h.update(chunk)
     return h.hexdigest()
-
 
 def fetch_prod(scene, platform, dest):
     if os.path.isfile(dest) and os.path.getsize(dest) > 0:
@@ -128,7 +117,6 @@ def fetch_prod(scene, platform, dest):
         print(f'  {scene}: prod fetch failed: {e}', file=sys.stderr)
         return False
 
-
 def entity_meta(scene):
     try:
         req = urllib.request.Request(CONTENT_LOCAL + scene, headers=UA)
@@ -143,7 +131,6 @@ def entity_meta(scene):
         }
     except Exception:
         return {'title': '', 'pointers': [], 'base': ''}
-
 
 def run_compare(ours, prod, prod_ab=''):
     cmd = [ABGEN_LOD, 'compare', ours, prod]
@@ -161,7 +148,6 @@ def run_compare(ours, prod, prod_ab=''):
             fails += 1
     return rows, fails
 
-
 def mesh_totals(rows, side):
     verts = tris = 0
     for r in rows:
@@ -177,7 +163,6 @@ def mesh_totals(rows, side):
         verts += int(v)
         tris += int(t)
     return verts, tris
-
 
 def probe(bundle, imgdir):
     p = subprocess.run([ATLASPROBE, 'bundle', bundle, imgdir],
@@ -215,7 +200,6 @@ def probe(bundle, imgdir):
                 t['imgs'][f'mip{i}'] = f
     return {'textures': textures, 'probe_verts': verts, 'probe_tris': tris}
 
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--run-id', default=time.strftime('lod-%Y%m%d'))
@@ -252,9 +236,6 @@ def main():
     with ThreadPoolExecutor(args.jobs) as ex:
         metas = dict(zip([s for s, _ in scenes],
                          ex.map(lambda sb: entity_meta(sb[0]), scenes)))
-        # Era gate: resolve each scene's registered asset-bundle version and
-        # only pair prod for current v49+ scenes; older eras are tagged, not
-        # compared.
         eras = dict(zip(
             [s for s, _ in scenes],
             ex.map(lambda sb: registry_era(
@@ -327,7 +308,6 @@ def main():
         json.dump(data, f, separators=(',', ':'))
     os.replace(dest + '.tmp', dest)
     print(f'wrote {dest} ({len(out_scenes)} scenes, {with_prod} with prod)')
-
 
 if __name__ == '__main__':
     main()

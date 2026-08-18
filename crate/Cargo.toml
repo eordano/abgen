@@ -10,6 +10,23 @@ autoexamples = false
 autotests = false
 autobenches = false
 
+[features]
+default = ["server"]
+# The ab-cdn JIT server + registry HTTP surface and their axum/Postgres stack.
+# abgen-lambda opts out (default-features = false) and gets the conversion
+# core alone — no sqlx, axum, or tokio in that build.
+server = [
+    "dep:axum",
+    "dep:dcl-contents",
+    "dep:ethers-core",
+    "dep:metrics-exporter-prometheus",
+    "dep:moka",
+    "dep:sqlx",
+    "dep:tokio",
+    "dep:tokio-util",
+    "dep:tower-http",
+]
+
 [lib]
 name = "abgen"
 path = "src/lib.rs"
@@ -17,6 +34,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "abgen"
 path = "src/bin/abgen.rs"
+required-features = ["server"]
 
 [[bin]]
 name = "abgen-build"
@@ -93,17 +111,20 @@ image = "0.25"
 ureq = "3"
 memmap2 = "0.9"
 meshopt = "=0.6.2"
-tokio = { version = "1", features = ["full"] }
-axum = "0.8"
+tokio = { version = "1", features = ["full"], optional = true }
+axum = { version = "0.8", optional = true }
 metrics = "0.24"
-metrics-exporter-prometheus = { version = "0.18", default-features = false }
-tower-http = { version = "0.7", features = ["trace"] }
-tokio-util = { version = "0.7", features = ["io"] }
+metrics-exporter-prometheus = { version = "0.18", default-features = false, optional = true }
+tower-http = { version = "0.7", features = ["trace"], optional = true }
+tokio-util = { version = "0.7", features = ["io"], optional = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-moka = { version = "0.12", features = ["future"] }
-sqlx = { version = "0.9", features = ["runtime-tokio", "postgres", "json"] }
-dcl-contents = { path = "dcl-contents" }
-ethers-core = "2.0.14"
+moka = { version = "0.12", features = ["future"], optional = true }
+# No default features: `any` is unused and `macros`/`derive` would build
+# sqlx-macros plus a second host copy of sqlx-postgres. `migrate` re-enables
+# just the macro parts that `sqlx::migrate!` in registry/mod.rs needs.
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "json", "macros", "migrate"], optional = true }
+dcl-contents = { path = "dcl-contents", optional = true }
+ethers-core = { version = "2.0.14", optional = true }
 hex = "0.4"
 thiserror = "2"
 wgpu = { version = "=30.0.0", default-features = false, features = ["std", "wgsl", "vulkan", "metal", "dx12"] }
